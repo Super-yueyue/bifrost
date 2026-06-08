@@ -41,6 +41,7 @@ export enum RbacOperation {
 	Create = "Create",
 	Update = "Update",
 	Delete = "Delete",
+	Reveal = "Reveal",
 	Download = "Download",
 }
 

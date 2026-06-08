@@ -25,6 +25,8 @@ import (
 
 const (
 	PluginName = "logging"
+	// LogRedactionDataContextKey carries precomputed guardrail redaction payloads into async log entries.
+	LogRedactionDataContextKey schemas.BifrostContextKey = "bifrost-logging-redaction-data"
 )
 
 // LogOperation represents the type of logging operation
@@ -105,6 +107,16 @@ func applyLargePayloadPreviewsToEntry(ctx *schemas.BifrostContext, entry *logsto
 				entry.RawResponse = preview
 			}
 		}
+	}
+}
+
+// attachLogRedactionData copies guardrail redaction data into the log entry for async writers.
+func attachLogRedactionData(ctx *schemas.BifrostContext, entry *logstore.Log) {
+	if ctx == nil || entry == nil {
+		return
+	}
+	if data, ok := ctx.Value(LogRedactionDataContextKey).(string); ok {
+		entry.RedactionData = data
 	}
 }
 
@@ -1238,6 +1250,7 @@ drainQueue:
 // retrieval by Inject(), or enqueues directly if no traceID is available (Go SDK path).
 // Multiple entries per traceID are supported (e.g. fallback/retry attempts within the same trace).
 func (p *LoggerPlugin) storeOrEnqueueEntry(ctx *schemas.BifrostContext, entry *logstore.Log, callback func(entry *logstore.Log)) {
+	attachLogRedactionData(ctx, entry)
 	traceID, _ := ctx.Value(schemas.BifrostContextKeyTraceID).(string)
 	if traceID != "" {
 		// Append to slice for Inject() to pick up — supports multiple attempts per trace

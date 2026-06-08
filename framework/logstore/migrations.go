@@ -354,6 +354,9 @@ func triggerMigrations(ctx context.Context, db *gorm.DB) error {
 	if err := migrationRecreateFilterCustomersMatView(ctx, db); err != nil {
 		return err
 	}
+	if err := migrationAddRedactionMappingColumn(ctx, db); err != nil {
+		return err
+	}
 	// migrationSplitFilterDataMatView is intentionally NOT invoked in this
 	// release. Dropping mv_logs_filterdata while old replicas are still
 	// serving /api/logs/filterdata from it would surface "relation does not
@@ -3241,6 +3244,37 @@ func migrationAddStopReasonColumn(ctx context.Context, db *gorm.DB) error {
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error while adding stop_reason column: %s", err.Error())
+	}
+	return nil
+}
+
+// migrationAddRedactionMappingColumn adds the redaction_mapping column to the
+// logs table. It stores the reversible redaction mapping (encrypted when an
+// encryption key is configured) so that reveal data shares the log row's
+// lifecycle: deleting the log deletes the mapping.
+func migrationAddRedactionMappingColumn(ctx context.Context, db *gorm.DB) error {
+	opts := *migrator.DefaultOptions
+	opts.UseTransaction = true
+	m := migrator.New(db, &opts, []*migrator.Migration{{
+		ID: "logs_add_redaction_mapping_column",
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			mig := tx.Migrator()
+			if !mig.HasColumn(&Log{}, "redaction_mapping") {
+				if err := mig.AddColumn(&Log{}, "redaction_mapping"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			// No-op rollback: dropping the column would permanently destroy
+			// reveal data for already-redacted logs.
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error while adding redaction_mapping column: %s", err.Error())
 	}
 	return nil
 }
