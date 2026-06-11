@@ -13,6 +13,10 @@ FLOW ?=
 VERSION ?= dev-build
 LOCAL ?=
 DEBUG ?=
+PPROFVIEWER_ADDR ?= :7777
+PPROF_FILES ?=
+PPROF_HEAP ?=
+PPROF_CPU ?=
 
 # Colors for output
 RED=\033[0;31m
@@ -66,7 +70,7 @@ define EXPOSE_ENV
 	fi
 endef
 
-.PHONY: all help dev dev-pulse build-ui build build-cli run run-cli install-air install-pulse clean test test-cli install-ui setup-workspace work-init work-clean docs docker-image docker-run cleanup-enterprise mod-tidy test-integrations-py test-integrations-ts install-playwright run-e2e run-e2e-ui run-e2e-headed run-e2e-api format ui install-newman run-provider-harness-test run-cli-harness-test test-semantic-cache test-semantic-cache-complete _test-semantic-cache-complete-inner helm-index
+.PHONY: all help dev dev-pulse build-ui build build-cli run run-cli pprofviewer install-air install-pulse clean test test-cli install-ui setup-workspace work-init work-clean docs docker-image docker-run cleanup-enterprise mod-tidy test-integrations-py test-integrations-ts install-playwright run-e2e run-e2e-ui run-e2e-headed run-e2e-api format ui install-newman run-provider-harness-test run-cli-harness-test test-semantic-cache test-semantic-cache-complete _test-semantic-cache-complete-inner helm-index
 
 all: help
 
@@ -90,6 +94,9 @@ help: ## Show this help message
 	@$(ECHO) "  APP_DIR           App data directory inside container (default: /app/data)"
 	@$(ECHO) "  LOCAL             Use local go.work for builds (e.g., make build LOCAL=1)"
 	@$(ECHO) "  DEBUG             Enable delve debugger on port 2345 (e.g., make dev DEBUG=1, make test-core DEBUG=1, make test-governance DEBUG=1)"
+	@$(ECHO) "  PPROFVIEWER_ADDR  pprofviewer listen address (default: :7777)"
+	@$(ECHO) "  PPROF_FILES       Space-separated profile paths for direct viewer URLs"
+	@$(ECHO) "  PPROF_HEAP/CPU    Optional heap/cpu profile paths for direct viewer URLs"
 	@$(ECHO) ""
 	@$(ECHO) "$(YELLOW)Test Configuration:$(NC)"
 	@$(ECHO) "  TEST_REPORTS_DIR  Directory for HTML test reports (default: test-reports)"
@@ -454,6 +461,22 @@ run: build ## Build and run bifrost-http (no hot reload)
 		-log-level "$(LOG_LEVEL)" \
 		$(if $(PROMETHEUS_LABELS),-prometheus-labels "$(PROMETHEUS_LABELS)") \
 		$(if $(APP_DIR),-app-dir "$(abspath $(APP_DIR))")
+
+pprofviewer: install-air ## Run standalone pprof heap/cpu viewer with air reload (Usage: make pprofviewer [PPROFVIEWER_ADDR=:7777] [PPROF_FILES="/tmp/heap.pprof /tmp/cpu.pprof"] [PPROF_HEAP=/tmp/heap.pprof] [PPROF_CPU=/tmp/cpu.pprof])
+	@addr="$(PPROFVIEWER_ADDR)"; \
+	base="http://localhost$${addr}"; \
+	if [[ "$$addr" != :* ]]; then base="http://$${addr}"; fi; \
+	$(ECHO) "$(GREEN)Starting pprofviewer at $$base$(NC)"; \
+	$(ECHO) "$(YELLOW)Upload profiles at $$base or open direct profile URLs below.$(NC)"; \
+	for profile in $(PPROF_FILES) $(PPROF_HEAP) $(PPROF_CPU); do \
+		if [ -n "$$profile" ]; then \
+			sample=""; \
+			if [ "$$profile" = "$(PPROF_HEAP)" ]; then sample="&sample=inuse_space"; fi; \
+			if [ "$$profile" = "$(PPROF_CPU)" ]; then sample="&sample=samples"; fi; \
+			$(ECHO) "  $$base/?path=$$profile$$sample"; \
+		fi; \
+	done; \
+	cd pprofviewer && GOWORK=off air -c .air.toml -- -addr "$$addr"
 
 run-cli: build-cli ## Run bifrost CLI (Usage: make run-cli [ARGS="--config ~/.bifrost/config.json"])
 	@$(ECHO) "$(GREEN)Running bifrost CLI...$(NC)"
